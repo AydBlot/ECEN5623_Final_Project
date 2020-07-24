@@ -891,6 +891,7 @@ int main(int argc, char **argv)
     else
         dev_name = "/dev/video0";
 
+    //setlogmask (LOG_UPTO (LOG_ERR));
     openlog("final_project_capture.c", LOG_PID|LOG_CONS, LOG_USER);
 
     for (;;)
@@ -950,6 +951,7 @@ int main(int argc, char **argv)
         }
     }
 
+    syslog(LOG_INFO, "Opening device...");
     open_device();
     init_device();
     start_capturing();
@@ -957,6 +959,7 @@ int main(int argc, char **argv)
     stop_capturing();
     uninit_device();
     close_device();
+    closelog();
     fprintf(stderr, "\n");
     return 0;
 }

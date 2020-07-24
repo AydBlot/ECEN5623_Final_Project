@@ -4,15 +4,15 @@ CC=gcc
 
 CDEFS=
 CFLAGS= -O0 -g $(INCLUDE_DIRS) $(CDEFS)
-LIBS= -lrt
+LIBS= -lrt -lpthread -Wall -g
 
 HFILES= 
-CFILES= capture.c
+CFILES= final_project_capture.c
 
 SRCS= ${HFILES} ${CFILES}
 OBJS= ${CFILES:.c=.o}
 
-all:	capture
+all:	final_project_capture
 
 clean:
 	-rm -f *.o *.d *.ppm *.pgm
@@ -21,7 +21,7 @@ clean:
 distclean:
 	-rm -f *.o *.d
 
-capture: ${OBJS}
+final_project_capture: ${OBJS}
 	$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $@.o $(LIBS)
 
 depend:
