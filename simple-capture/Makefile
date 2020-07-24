@@ -16,7 +16,7 @@ all:	final_project_capture
 
 clean:
 	-rm -f *.o *.d *.ppm *.pgm
-	-rm -f capture
+	-rm -f final_project_capture
 
 distclean:
 	-rm -f *.o *.d

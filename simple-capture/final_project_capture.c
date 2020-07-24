@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <string.h>
 
 #include <getopt.h>             /* getopt_long() */
 
@@ -29,6 +30,8 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <syslog.h>
+#include <signal.h>
+#include <pthread.h>
 
 #include <linux/videodev2.h>
 
@@ -68,6 +71,11 @@ static int              out_buf;
 static int              force_format=1;
 static int              frame_count = 30;
 
+int transform_1 = 0;
+int transform_2 = 0;
+int transform_3 = 0;
+
+pthread_mutex_t lock;
 static void errno_exit(const char *s)
 {
         fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
@@ -884,6 +892,50 @@ long_options[] = {
         { 0, 0, 0, 0 }
 };
 
+void SIGhandler(int signo) {
+        char *signal_string = strsignal(signo);	
+	syslog(LOG_INFO, "--------Caught signal: %s-------", signal_string);
+	switch(signo){
+		case SIGINT:
+			pthread_mutex_lock(&lock);
+			if(transform_1){
+				transform_1 = 0;	 
+				syslog(LOG_INFO, "Disabling transform_1");
+			}
+			else{
+				transform_1 = 1;	 
+				syslog(LOG_INFO, "Enabling transform_1");
+			}
+			pthread_mutex_unlock(&lock); 
+			break;
+		case SIGTSTP:
+			pthread_mutex_lock(&lock);
+			if(transform_2){
+				transform_2 = 0;	 
+				syslog(LOG_INFO, "Disabling transform_2");
+			}
+			else{
+				transform_2 = 1;	 
+				syslog(LOG_INFO, "Enabling transform_2");
+			}
+			pthread_mutex_unlock(&lock); 
+			break;
+		case SIGQUIT:
+			pthread_mutex_lock(&lock);
+			if(transform_3){
+				transform_3 = 0;	 
+				syslog(LOG_INFO, "Disabling transform_3");
+			}
+			else{
+				transform_3 = 1;	 
+				syslog(LOG_INFO, "Enabling transform_3");
+			}
+			pthread_mutex_unlock(&lock); 
+			break;
+	}
+		
+}
+
 int main(int argc, char **argv)
 {
     if(argc > 1)
@@ -891,8 +943,19 @@ int main(int argc, char **argv)
     else
         dev_name = "/dev/video0";
 
+    if (pthread_mutex_init(&lock, NULL) != 0) { 
+        printf("\r\n mutex init has failed\r\n"); 
+        return 1; 
+    } 
+
     //setlogmask (LOG_UPTO (LOG_ERR));
     openlog("final_project_capture.c", LOG_PID|LOG_CONS, LOG_USER);
+
+    //Handle sigint and sigterm signals to ensure sockets are closed properly 
+    //and memory is cleaned	
+    signal(SIGINT, SIGhandler);
+    signal(SIGTSTP, SIGhandler);
+    signal(SIGQUIT, SIGhandler);
 
     for (;;)
     {
