@@ -9,13 +9,13 @@ This page is for final project related scheduling tasks
 ## Status Icons
 Status icons used in the status column:
 
-:x: Not started (Issue should include DoD)
+:x: Not started 
 
-:heavy_check_mark: Complete (Issue should contain detail about implementation, DoD in description should be up to date)
+:heavy_check_mark: Complete 
 
-:heavy_plus_sign: In Progress (Issue have up to date DoD, should contain detail about status)
+:heavy_plus_sign: In Progress 
 
-:red_circle: Blocked (Issue should include DoD and contain link to blocker)
+:red_circle: Blocked 
 
 | Target Milestone | Status            | Owner    | Date Completed |
 | ---------------- | -------------     | -------- | -------------- |
