@@ -32,6 +32,8 @@
 #include <syslog.h>
 #include <signal.h>
 #include <pthread.h>
+#include <sched.h>
+#include <time.h>
 
 #include <linux/videodev2.h>
 
@@ -74,6 +76,10 @@ static int              frame_count = 30;
 int transform_1 = 0;
 int transform_2 = 0;
 int transform_3 = 0;
+
+timer_t oneHZ_capture_timer;
+struct itimerspec timeout_timespec;
+struct sigevent timeout_event; 
 
 pthread_mutex_t lock;
 static void errno_exit(const char *s)
@@ -936,6 +942,10 @@ void SIGhandler(int signo) {
 		
 }
 
+void oneHZ_frame_capture_handler(union sigval sv){
+	printf("MADE TIMER HANDLER\r\n");
+}
+
 int main(int argc, char **argv)
 {
     if(argc > 1)
@@ -1014,10 +1024,43 @@ int main(int argc, char **argv)
         }
     }
 
+    //configure timespec to start in 1 seconds
+    timeout_timespec.it_value.tv_sec = 1;
+    timeout_timespec.it_value.tv_nsec = 0;
+
+    //configure timespec to restart every 20 seconds
+    timeout_timespec.it_interval.tv_sec = 1;
+    timeout_timespec.it_interval.tv_nsec = 0;
+
+    //Pass function pointer and timer value to the event structure
+    timeout_event.sigev_notify = SIGEV_THREAD;
+    timeout_event.sigev_notify_function = &oneHZ_frame_capture_handler;
+    timeout_event.sigev_notify_attributes = NULL;
+    timeout_event.sigev_value.sival_ptr = &oneHZ_capture_timer;
+    timeout_event.sigev_value.sival_int = 0;
+
+    //create the Timer with the proper event
+    int ret = timer_create(CLOCK_REALTIME, &timeout_event, &oneHZ_capture_timer);
+    syslog(LOG_INFO, "timer create ret val=%d\r\n", ret);
+
+    if (ret){
+    	perror ("timeout timer_create");
+    }
+    syslog(LOG_INFO, "created timeout timer \r\n");
+
+
     syslog(LOG_INFO, "Opening device...");
     open_device();
     init_device();
     start_capturing();
+
+    //Start the timer so we begin capturing frames
+    int timeout_ret = timer_settime(oneHZ_capture_timer, 0, &timeout_timespec, NULL);
+    if(timeout_ret){
+    	perror ("timer_settime");
+    }
+
+    //FIX: add mainloop to thread?
     mainloop();
     stop_capturing();
     uninit_device();
