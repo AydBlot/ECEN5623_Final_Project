@@ -21,11 +21,11 @@ Status icons used in the status column:
 | ---------------- | -------------     | -------- | -------------- |
 | Submit Project Proposal | :heavy_check_mark:| Ayden & Joey | 07/24/2020 |
 | Initialize git Repo     | :heavy_check_mark:| Ayden & Joey | 07/24/2020 |                
-| Syslogging              | :heavy_plus_sign: | Ayden        | 07/24/2020 |
+| Syslogging              | :heavy_check_mark: | Ayden        | 07/24/2020 |
 | Requirement 1           | :heavy_plus_sign: | Ayden        |     N/A    |
-| Requirement 2           | :x:               | Joey         |     N/A    |
+| Requirement 2           | :heavy_plus_sign:               | Joey         |     N/A    |
 | Calculation of jitter   | :x:               | Ayden        |     N/A    |
 | Calculation of drift    | :x:               | Ayden        |     N/A    |
-| Circular Buffer         | :x:               | Joey         |     N/A    |
+| Circular Buffer         | :heavy_plus_sign:               | Joey         |     N/A    |
 | TBD                     | :x:               |              |     N/A    |
 | TBD                     | :x:               |              |     N/A    |
