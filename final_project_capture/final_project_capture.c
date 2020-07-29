@@ -391,7 +391,9 @@ static int read_frame(void)
 	    aesd_circular_buffer_add_entry(&circular_buffer, &buffers[buf.index], buf.length);
 
 	    printf("made it:%d\r\n",circular_buffer.in_offs);
-            process_image(circular_buffer.pixel_data[circular_buffer.in_offs]->start, buf.bytesused);
+            //process_image(circular_buffer.pixel_data[circular_buffer.in_offs]->start, buf.bytesused);
+	    
+	    
 	    //process_image(circular_buffer[circular], buf.bytesused);
 	    printf("buf bytesused:%d\r\n", buf.bytesused);
 
@@ -970,7 +972,13 @@ void SIGhandler(int signo) {
 }
 
 void oneHZ_frame_capture_handler(union sigval sv){
-	printf("MADE TIMER HANDLER\r\n");
+	printf("MADE TIMER HANDLER\r\n\n\n\n\n\n\n\n\n\n");
+
+	struct v4l2_buffer buf;
+
+        process_image(circular_buffer.pixel_data[circular_buffer.in_offs-1]->start, 153600);
+	printf("time of frame capture %ds, %dnsec\n", circular_buffer.pixel_data[circular_buffer.in_offs-1]->time->tv_sec, circular_buffer.pixel_data[circular_buffer.in_offs-1]->time->tv_nsec);
+	
 }
 
 int main(int argc, char **argv)

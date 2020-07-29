@@ -14,6 +14,7 @@
 #include <stddef.h> // size_t
 #include <stdint.h> // uintx_t
 #include <stdbool.h>
+#include <time.h>
 #endif
 
 //#define AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED 10
@@ -23,6 +24,9 @@ struct buffer
 {
         void   *start;
         size_t  length;
+	
+	//timespec for frame time
+	struct timespec *time;
 };
 
 struct aesd_circular_buffer
@@ -44,6 +48,7 @@ struct aesd_circular_buffer
 	 * set to true when the buffer entry structure is full
 	 */
 	bool full;
+
 };
 
 extern void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, struct buffer *add_entry, int buffer_size);

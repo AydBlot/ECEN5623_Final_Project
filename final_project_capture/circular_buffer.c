@@ -13,11 +13,14 @@
 #else
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 #endif
 
 #include "circular_buffer.h"
 #include <stdlib.h>
 #include <linux/videodev2.h>
+
+
 //Inline allows this function to be placed inside a .h file to be used by other files, if not placed the static function could not be placed anywhere else
 static inline uint8_t aesd_circular_buffer_next_offs(uint8_t offs){
 	if(++offs >= CIRCULAR_BUFFER_SIZE){
@@ -68,7 +71,9 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, struct 
 		//buffer->pixel_data[buffer->in_offs]->start = malloc(buffer_size);
 		printf("made mempy circular buffer\r\n");
 	        memcpy(buffer->pixel_data[buffer->in_offs]->start, add_entry->start, buffer_size);
+		clock_gettime(CLOCK_REALTIME, buffer->pixel_data[buffer->in_offs]->time);
 		buffer->in_offs = aesd_circular_buffer_next_offs(buffer->in_offs);
+		
 		//buffer->in_offs++;		
 		//if in==ofss set true
 		if(buffer->in_offs == buffer->out_offs){
@@ -90,6 +95,7 @@ void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
     memset(buffer,0,sizeof(struct aesd_circular_buffer));
     for(int i = 0; i<CIRCULAR_BUFFER_SIZE; i++){
     	buffer->pixel_data[i] = calloc(1, sizeof(*buffers));	
-    	buffer->pixel_data[i]->start = malloc(153600); 
+    	buffer->pixel_data[i]->start = malloc(153600);
+        buffer->pixel_data[i]->time = malloc(sizeof(struct timespec));	
     }
 }
