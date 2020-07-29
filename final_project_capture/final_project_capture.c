@@ -37,15 +37,16 @@
 
 #include <linux/videodev2.h>
 
-#include <time.h>
+#include "circular_buffer.h" 
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
-#define COLOR_CONVERT
+//#define COLOR_CONVERT
 #define HRES 320
 #define VRES 240
 #define HRES_STR "320"
 #define VRES_STR "240"
 
+//#define CIRCULAR_BUFFER_SIZE 100
 // Format is used by a number of functions, so made as a file global
 static struct v4l2_format fmt;
 
@@ -56,11 +57,11 @@ enum io_method
         IO_METHOD_USERPTR,
 };
 
-struct buffer 
-{
-        void   *start;
-        size_t  length;
-};
+//struct buffer 
+//{
+//        void   *start;
+//        size_t  length;
+//};
 
 static char            *dev_name;
 //static enum io_method   io = IO_METHOD_USERPTR;
@@ -80,6 +81,9 @@ int transform_3 = 0;
 timer_t oneHZ_capture_timer;
 struct itimerspec timeout_timespec;
 struct sigevent timeout_event; 
+
+//circular buffer structure
+struct aesd_circular_buffer circular_buffer;
 
 pthread_mutex_t lock;
 static void errno_exit(const char *s)
@@ -260,7 +264,10 @@ static void process_image(const void *p, int size)
     else if(fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
     {
 
-#if defined(COLOR_CONVERT)
+//#if defined(COLOR_CONVERT)
+	pthread_mutex_lock(&lock);
+	if(transform_1){
+	pthread_mutex_unlock(&lock);
         printf("Dump YUYV converted to RGB size %d\n", size);
        
         // Pixels are YU and YV alternating, so YUYV which is 4 bytes
@@ -274,7 +281,10 @@ static void process_image(const void *p, int size)
         }
 
         dump_ppm(bigbuffer, ((size*6)/4), framecnt, &frame_time);
-#else
+	}
+//#else
+	else {
+	pthread_mutex_unlock(&lock);
         printf("Dump YUYV converted to YY size %d\n", size);
        
         // Pixels are YU and YV alternating, so YUYV which is 4 bytes
@@ -288,7 +298,8 @@ static void process_image(const void *p, int size)
         }
 
         dump_pgm(bigbuffer, (size/2), framecnt, &frame_time);
-#endif
+	}
+//#endif
 
     }
 
@@ -343,6 +354,7 @@ static int read_frame(void)
 
             buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             buf.memory = V4L2_MEMORY_MMAP;
+	    printf("buf length:%d\r\n", buf.length);
 
             if (-1 == xioctl(fd, VIDIOC_DQBUF, &buf))
             {
@@ -366,7 +378,22 @@ static int read_frame(void)
 
             assert(buf.index < n_buffers);
 
-            process_image(buffers[buf.index].start, buf.bytesused);
+	    printf("buf index:%d\r\n", buf.index);
+	    printf("buf length:%d\r\n", buf.length);
+
+	    //struct buffer *new_buffer = calloc(1, sizeof(*buffers));
+	    //new_buffer->start = malloc(buf.length);
+	    //memcpy(new_buffer->start, buffers[buf.index].start, buf.length);
+	    //circular_buffer.pixel_data[0] = calloc(1, sizeof(*buffers));
+	    //circular_buffer.pixel_data[0]->start = malloc(buf.length);
+
+	    //Add the data to the circular buffer 
+	    aesd_circular_buffer_add_entry(&circular_buffer, &buffers[buf.index], buf.length);
+
+	    printf("made it:%d\r\n",circular_buffer.in_offs);
+            process_image(circular_buffer.pixel_data[circular_buffer.in_offs]->start, buf.bytesused);
+	    //process_image(circular_buffer[circular], buf.bytesused);
+	    printf("buf bytesused:%d\r\n", buf.bytesused);
 
             if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
                     errno_exit("VIDIOC_QBUF");
@@ -1052,6 +1079,7 @@ int main(int argc, char **argv)
     syslog(LOG_INFO, "Opening device...");
     open_device();
     init_device();
+    aesd_circular_buffer_init(&circular_buffer);
     start_capturing();
 
     //Start the timer so we begin capturing frames
