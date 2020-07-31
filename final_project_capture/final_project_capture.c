@@ -308,7 +308,63 @@ static void process_image(const void *p, int size)
         dump_ppm(bigbuffer, ((size*6)/4), framecnt, &frame_time);
 	}
 //#else
-	else {
+	else if (transform_2){
+	printf("Dump YUYV converted to YY size %d\n", size);
+       
+        // Pixels are YU and YV alternating, so YUYV which is 4 bytes
+        // We want Y, so YY which is 2 bytes
+        //
+        for(i=0, newi=0; i<size; i=i+4, newi=newi+2)
+        {
+            // Y1=first byte and Y2=third byte
+            bigbuffer[newi]=pptr[i];
+            bigbuffer[newi+1]=pptr[i+2];
+	}
+
+
+       // dump_pgm(bigbuffer, (size/2), framecnt, &frame_time);
+
+	int R_temp, G_temp, B_temp, i, newi;
+	/*Apply pseudo-color functions using sinusoids*/
+ 	int C_r = 234; 					// Cycle change for the red channel
+ 	int P_r = 10; 					// Phase change for the red channel
+ 	int C_b = 604; 					// Cycle change for the blue channel
+ 	int P_b = 60; 					// Phase change for the blue channel
+ 	int C_g = 804;					// Cycle change for the green channel
+ 	int P_g = 60; 					// Phase change for the green channel
+
+	
+       // dump_pgm(bigbuffer, (size/2), framecnt, &frame_time);
+	
+	//printf("abs check %d\n", M_PI);
+	for(i=0, newi=0; i<=(size/2); i++, newi = newi+3)
+	{
+			
+		R_temp = abs(2*sin(2*3.14*P_r*bigbuffer[i]/C_r)*bigbuffer[i]);
+		G_temp = abs(2*sin(2*3.14*P_g*bigbuffer[i]/C_g)*bigbuffer[i]);
+		B_temp = abs(2*sin(2*3.14*P_b*bigbuffer[i]/C_b)*bigbuffer[i]);
+
+   		// Computed values may need clipping.
+  		 if (R_temp > 255) R_temp = 255;
+ 		 if (G_temp > 255) G_temp = 255;
+  		 if (B_temp > 255) B_temp = 255;
+
+   		/*if (R_temp < 0) R_temp = 0;
+   		if (G_temp < 0) G_temp = 0;
+   		if (B_temp < 0) B_temp = 0;	*/
+		
+		newbuffer[newi] = R_temp;
+		newbuffer[newi+1] = G_temp;
+		newbuffer[newi+2] = B_temp;
+
+	
+	}
+
+
+	dump_ppm(newbuffer, (size*3), framecnt, &frame_time);
+	
+	}
+	else{
 	pthread_mutex_unlock(&lock);
         printf("Dump YUYV converted to YY size %d\n", size);
        
