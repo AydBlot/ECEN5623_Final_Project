@@ -72,11 +72,13 @@ struct buffer          *buffers;
 static unsigned int     n_buffers;
 static int              out_buf;
 static int              force_format=1;
-static int              frame_count = 30;
+static int              frame_count = 300;
 
 int transform_1 = 0;
 int transform_2 = 0;
 int transform_3 = 0;
+
+int first_frame_captured = 1;
 
 timer_t oneHZ_capture_timer;
 struct itimerspec timeout_timespec;
@@ -105,8 +107,29 @@ static int xioctl(int fh, int request, void *arg)
         return r;
 }
 
+int timespec2str(char *buf, uint len, struct timespec *ts) {
+    int ret;
+    struct tm t;
+
+    tzset();
+    if (localtime_r(&(ts->tv_sec), &t) == NULL)
+        return 1;
+
+    ret = strftime(buf, len, "%F %T", &t);
+    if (ret == 0)
+        return 2;
+    len -= ret - 1;
+
+    ret = snprintf(&buf[strlen(buf)], len, ".%09ld", ts->tv_nsec);
+    if (ret >= len)
+        return 3;
+
+    return 0;
+}
+
 char ppm_header[]="P6\n#9999999999 sec 9999999999 msec \n"HRES_STR" "VRES_STR"\n255\n";
 char ppm_dumpname[]="test00000000.ppm";
+
 
 static void dump_ppm(const void *p, int size, unsigned int tag, struct timespec *time)
 {
@@ -389,6 +412,14 @@ static int read_frame(void)
 
 	    //Add the data to the circular buffer 
 	    aesd_circular_buffer_add_entry(&circular_buffer, &buffers[buf.index], buf.length);
+	    if(first_frame_captured){
+		    //Start the timer so we begin capturing frames
+		    int timeout_ret = timer_settime(oneHZ_capture_timer, 0, &timeout_timespec, NULL);
+		    if(timeout_ret){
+			perror ("timer_settime");
+		    }
+		    first_frame_captured = 0;
+	    }
 
 	    printf("made it:%d\r\n",circular_buffer.in_offs);
             //process_image(circular_buffer.pixel_data[circular_buffer.in_offs]->start, buf.bytesused);
@@ -973,11 +1004,12 @@ void SIGhandler(int signo) {
 
 void oneHZ_frame_capture_handler(union sigval sv){
 	printf("MADE TIMER HANDLER\r\n\n\n\n\n\n\n\n\n\n");
-
-	struct v4l2_buffer buf;
-
-        process_image(circular_buffer.pixel_data[circular_buffer.in_offs-1]->start, 153600);
-	printf("time of frame capture %ds, %dnsec\n", circular_buffer.pixel_data[circular_buffer.in_offs-1]->time->tv_sec, circular_buffer.pixel_data[circular_buffer.in_offs-1]->time->tv_nsec);
+	char time_buf[50];
+	
+	uint8_t last_frame_index = get_current_entry_location(&circular_buffer);
+        process_image(circular_buffer.pixel_data[last_frame_index]->start, 153600);
+	timespec2str(time_buf, sizeof(time_buf), circular_buffer.pixel_data[last_frame_index]->time);
+	syslog(LOG_INFO,"time of frame capture: %s", time_buf);
 	
 }
 
@@ -1090,11 +1122,6 @@ int main(int argc, char **argv)
     aesd_circular_buffer_init(&circular_buffer);
     start_capturing();
 
-    //Start the timer so we begin capturing frames
-    int timeout_ret = timer_settime(oneHZ_capture_timer, 0, &timeout_timespec, NULL);
-    if(timeout_ret){
-    	perror ("timer_settime");
-    }
 
     //FIX: add mainloop to thread?
     mainloop();

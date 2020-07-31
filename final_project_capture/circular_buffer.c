@@ -58,6 +58,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, struct 
 		//buffer->pixel_data[buffer->in_offs] = add_entry;
 		//buffer->pixel_data[buffer->in_offs]->start = malloc(buffer_size);
 	        memcpy(buffer->pixel_data[buffer->in_offs]->start, add_entry->start, buffer_size);
+		clock_gettime(CLOCK_REALTIME, buffer->pixel_data[buffer->in_offs]->time);
 		//call static inline lecture 17 slide 10
 		buffer->in_offs = aesd_circular_buffer_next_offs(buffer->in_offs);
 		buffer->out_offs = aesd_circular_buffer_next_offs(buffer->out_offs);
@@ -68,11 +69,11 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, struct 
 	}
 	else{
 		//buffer->pixel_data[buffer->in_offs] = add_entry;
-		//buffer->pixel_data[buffer->in_offs]->start = malloc(buffer_size);
-		printf("made mempy circular buffer\r\n");
 	        memcpy(buffer->pixel_data[buffer->in_offs]->start, add_entry->start, buffer_size);
+		printf("---------------------buffer in offs at placement=%d\r\n---------------------", buffer->in_offs);
 		clock_gettime(CLOCK_REALTIME, buffer->pixel_data[buffer->in_offs]->time);
 		buffer->in_offs = aesd_circular_buffer_next_offs(buffer->in_offs);
+		printf("-----------------buffer in offs after increment=%d\r\n-----------------------", buffer->in_offs);
 		
 		//buffer->in_offs++;		
 		//if in==ofss set true
@@ -82,6 +83,17 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, struct 
 	}
 }
 
+static inline uint8_t aesd_circular_buffer_last_in_offs(uint8_t offs){
+	if(--offs == 255){
+		offs = CIRCULAR_BUFFER_SIZE-1;
+	} 
+		printf("---------------------offs is%d------------------------------\r\n", offs);
+	return offs;
+}
+
+uint8_t get_current_entry_location(struct aesd_circular_buffer *buffer){
+	return aesd_circular_buffer_last_in_offs(buffer->in_offs);
+}
 /**
 * Initializes the circular buffer described by @param buffer to an empty struct
 */
