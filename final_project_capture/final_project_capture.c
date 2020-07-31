@@ -74,6 +74,8 @@ static int              out_buf;
 static int              force_format=1;
 static int              frame_count = 300;
 
+#define TOTAL_FRAME_COUNT 300
+
 int transform_1 = 0;
 int transform_2 = 0;
 int transform_3 = 0;
@@ -269,10 +271,10 @@ static void process_image(const void *p, int size)
     unsigned char *pptr = (unsigned char *)p;
 
     // record when process was called
-    clock_gettime(CLOCK_REALTIME, &frame_time);    
+    //clock_gettime(CLOCK_REALTIME, &frame_time);    
 
     framecnt++;
-    printf("frame %d: ", framecnt);
+    //printf("frame %d: ", framecnt);
 
     // This just dumps the frame to a file now, but you could replace with whatever image
     // processing you wish.
@@ -347,6 +349,10 @@ static int read_frame(void)
     struct v4l2_buffer buf;
     unsigned int i;
 
+    static struct timespec process_times[TOTAL_FRAME_COUNT];
+    static int process_times_count = 0;
+    static double frame_rates[TOTAL_FRAME_COUNT] = {0};
+
     switch (io)
     {
 
@@ -377,7 +383,6 @@ static int read_frame(void)
 
             buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             buf.memory = V4L2_MEMORY_MMAP;
-	    printf("buf length:%d\r\n", buf.length);
 
             if (-1 == xioctl(fd, VIDIOC_DQBUF, &buf))
             {
@@ -401,8 +406,8 @@ static int read_frame(void)
 
             assert(buf.index < n_buffers);
 
-	    printf("buf index:%d\r\n", buf.index);
-	    printf("buf length:%d\r\n", buf.length);
+	    //printf("buf index:%d\r\n", buf.index);
+	    //printf("buf length:%d\r\n", buf.length);
 
 	    //struct buffer *new_buffer = calloc(1, sizeof(*buffers));
 	    //new_buffer->start = malloc(buf.length);
@@ -421,12 +426,30 @@ static int read_frame(void)
 		    first_frame_captured = 0;
 	    }
 
-	    printf("made it:%d\r\n",circular_buffer.in_offs);
-            //process_image(circular_buffer.pixel_data[circular_buffer.in_offs]->start, buf.bytesused);
-	    
-	    
-	    //process_image(circular_buffer[circular], buf.bytesused);
-	    printf("buf bytesused:%d\r\n", buf.bytesused);
+	    //printf("buf bytesused:%d\r\n", buf.bytesused);
+
+	    // record when processing finished (frame was captured)
+	    clock_gettime(CLOCK_REALTIME, &process_times[process_times_count]);    
+	    if(process_times_count >= 1){
+		    frame_rates[process_times_count] = (process_times[process_times_count].tv_sec - process_times[process_times_count-1].tv_sec) +
+				 (process_times[process_times_count].tv_nsec - process_times[process_times_count-1].tv_nsec) / 1000000000.0; 
+		    //syslog(LOG_INFO,"frame rate is:%fs for frame:%d at resolution 320x240", frame_rates[process_times_count], process_times_count-1);
+	    }
+	    process_times_count++;
+	    if(process_times_count == TOTAL_FRAME_COUNT){
+		    double total_frame_rate = 0;
+		    double jitter = 0;
+		    for(int i = 0; i < TOTAL_FRAME_COUNT; i++){
+			    total_frame_rate += frame_rates[i];
+		    }
+		    //Calculate the average jitter of successful captures
+		    for(int frame_rate = process_times_count-1; frame_rate > 0; frame_rate--){
+ 			    //printf("Frame rate = %f for frame %d\r\n", frame_rates[frame_rate], frame_rate); 
+			    jitter += (frame_rates[frame_rate] - frame_rates[frame_rate-1]);
+	            } 
+	   	    syslog(LOG_INFO, "Average frame rate:%fHz", 1/(total_frame_rate/TOTAL_FRAME_COUNT));
+		    syslog(LOG_INFO, "Average jitter is:%f", jitter/TOTAL_FRAME_COUNT);
+	    } 
 
             if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
                     errno_exit("VIDIOC_QBUF");
@@ -520,7 +543,7 @@ static void mainloop(void)
                 if(nanosleep(&read_delay, &time_error) != 0)
                     perror("nanosleep");
                 else
-                    printf("time_error.tv_sec=%ld, time_error.tv_nsec=%ld\n", time_error.tv_sec, time_error.tv_nsec);
+                    //syslog(LOG_INFO, "time_error.tv_sec=%ld, time_error.tv_nsec=%ld", time_error.tv_sec, time_error.tv_nsec);
 
                 count--;
                 break;
@@ -958,6 +981,7 @@ long_options[] = {
         { 0, 0, 0, 0 }
 };
 
+//Handler that responds to signals and changes the transform accordingly
 void SIGhandler(int signo) {
         char *signal_string = strsignal(signo);	
 	syslog(LOG_INFO, "--------Caught signal: %s-------", signal_string);
@@ -1002,8 +1026,9 @@ void SIGhandler(int signo) {
 		
 }
 
+//Handler that controls capturing the frames every 1 second by looking 
+//at the last most recent entry to the circular buffer
 void oneHZ_frame_capture_handler(union sigval sv){
-	printf("MADE TIMER HANDLER\r\n\n\n\n\n\n\n\n\n\n");
 	char time_buf[50];
 	
 	uint8_t last_frame_index = get_current_entry_location(&circular_buffer);
@@ -1095,11 +1120,11 @@ int main(int argc, char **argv)
     timeout_timespec.it_value.tv_sec = 1;
     timeout_timespec.it_value.tv_nsec = 0;
 
-    //configure timespec to restart every 20 seconds
+    //configure timespec to restart every 1 seconds
     timeout_timespec.it_interval.tv_sec = 1;
     timeout_timespec.it_interval.tv_nsec = 0;
 
-    //Pass function pointer and timer value to the event structure
+    //Pass function pointer and timer structure to the event structure
     timeout_event.sigev_notify = SIGEV_THREAD;
     timeout_event.sigev_notify_function = &oneHZ_frame_capture_handler;
     timeout_event.sigev_notify_attributes = NULL;
@@ -1114,7 +1139,6 @@ int main(int argc, char **argv)
     	perror ("timeout timer_create");
     }
     syslog(LOG_INFO, "created timeout timer \r\n");
-
 
     syslog(LOG_INFO, "Opening device...");
     open_device();

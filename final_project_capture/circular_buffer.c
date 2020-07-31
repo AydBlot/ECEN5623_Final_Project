@@ -38,6 +38,9 @@ static inline uint8_t aesd_circular_buffer_next_offs(uint8_t offs){
 */
 void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, struct buffer *add_entry, int buffer_size)
 {
+    
+	//static struct timespec rtclk_start_time = {0, 0};
+	//static struct timespec rtclk_stop_time = {0, 0};
 
     /**
     * TODO: implement per description 
@@ -69,11 +72,12 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, struct 
 	}
 	else{
 		//buffer->pixel_data[buffer->in_offs] = add_entry;
+		//clock_gettime(CLOCK_REALTIME, &rtclk_start_time); 
 	        memcpy(buffer->pixel_data[buffer->in_offs]->start, add_entry->start, buffer_size);
-		printf("---------------------buffer in offs at placement=%d\r\n---------------------", buffer->in_offs);
+		//clock_gettime(CLOCK_REALTIME, &rtclk_stop_time); 
+		//printf("memvp apx time:%ds %dns\r\n", (rtclk_stop_time.tv_sec-rtclk_start_time.tv_sec), (rtclk_stop_time.tv_nsec-rtclk_start_time.tv_nsec)); 
 		clock_gettime(CLOCK_REALTIME, buffer->pixel_data[buffer->in_offs]->time);
 		buffer->in_offs = aesd_circular_buffer_next_offs(buffer->in_offs);
-		printf("-----------------buffer in offs after increment=%d\r\n-----------------------", buffer->in_offs);
 		
 		//buffer->in_offs++;		
 		//if in==ofss set true
@@ -87,7 +91,6 @@ static inline uint8_t aesd_circular_buffer_last_in_offs(uint8_t offs){
 	if(--offs == 255){
 		offs = CIRCULAR_BUFFER_SIZE-1;
 	} 
-		printf("---------------------offs is%d------------------------------\r\n", offs);
 	return offs;
 }
 
