@@ -13,11 +13,15 @@
  * see http://linuxtv.org/docs.php for more information
  */
 
+// This is necessary for CPU affinity macros in Linux
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <string.h>
+#include <math.h>
 
 #include <getopt.h>             /* getopt_long() */
 
@@ -29,11 +33,13 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <sys/sysinfo.h>
 #include <syslog.h>
 #include <signal.h>
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
+#include <semaphore.h>
 
 #include <linux/videodev2.h>
 
@@ -41,10 +47,12 @@
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 //#define COLOR_CONVERT
-#define HRES 320
-#define VRES 240
-#define HRES_STR "320"
-#define VRES_STR "240"
+#define HRES 640
+#define VRES 480
+#define HRES_STR "640"
+#define VRES_STR "480"
+#define NUM_CPU_CORES (4)
+#define NUM_THREADS (2)
 
 //#define CIRCULAR_BUFFER_SIZE 100
 // Format is used by a number of functions, so made as a file global
@@ -74,20 +82,35 @@ static int              out_buf;
 static int              force_format=1;
 static int              frame_count = 300;
 
-#define TOTAL_FRAME_COUNT 300
+#define TOTAL_FRAME_COUNT 400
+#define TRUE (1)
+#define FALSE (0)
 
 int transform_1 = 0;
 int transform_2 = 0;
 int transform_3 = 0;
 
-int first_frame_captured = 1;
-
-timer_t oneHZ_capture_timer;
+int first_frame_captured = 0;
+sem_t save_frames_sem, read_frames_sem;
+timer_t sequencer_timer;
 struct itimerspec timeout_timespec;
 struct sigevent timeout_event; 
 
 //circular buffer structure
 struct aesd_circular_buffer circular_buffer;
+
+static unsigned long long seqCnt=0;
+
+unsigned long long sequencePeriods;
+
+static struct itimerspec last_itime;
+
+int abortS1=FALSE, abortS2=FALSE;
+
+typedef struct
+{
+    int threadIdx;
+} threadParams_t;
 
 pthread_mutex_t lock;
 static void errno_exit(const char *s)
@@ -129,6 +152,32 @@ int timespec2str(char *buf, uint len, struct timespec *ts) {
     return 0;
 }
 
+void print_scheduler(void)
+{
+   int schedType;
+
+   schedType = sched_getscheduler(getpid());
+
+   switch(schedType)
+   {
+       case SCHED_FIFO:
+           printf("Pthread Policy is SCHED_FIFO\n");
+           break;
+       case SCHED_OTHER:
+           printf("Pthread Policy is SCHED_OTHER\n"); exit(-1);
+         break;
+       case SCHED_RR:
+           printf("Pthread Policy is SCHED_RR\n"); exit(-1);
+           break;
+       //case SCHED_DEADLINE:
+       //    printf("Pthread Policy is SCHED_DEADLINE\n"); exit(-1);
+       //    break;
+       default:
+           printf("Pthread Policy is UNKNOWN\n"); exit(-1);
+   }
+}
+
+
 char ppm_header[]="P6\n#9999999999 sec 9999999999 msec \n"HRES_STR" "VRES_STR"\n255\n";
 char ppm_dumpname[]="test00000000.ppm";
 
@@ -157,7 +206,7 @@ static void dump_ppm(const void *p, int size, unsigned int tag, struct timespec 
         total+=written;
     } while(total < size);
 
-    printf("wrote %d bytes\n", total);
+    //printf("wrote %d bytes\n", total);
 
     close(dumpfd);
     
@@ -191,7 +240,7 @@ static void dump_pgm(const void *p, int size, unsigned int tag, struct timespec 
         total+=written;
     } while(total < size);
 
-    printf("wrote %d bytes\n", total);
+    //printf("wrote %d bytes\n", total);
 
     close(dumpfd);
     
@@ -262,6 +311,7 @@ void yuv2rgb(int y, int u, int v, unsigned char *r, unsigned char *g, unsigned c
 
 unsigned int framecnt=0;
 unsigned char bigbuffer[(1280*960)];
+unsigned char newbuffer[(1280*960)];
 
 static void process_image(const void *p, int size)
 {
@@ -269,6 +319,14 @@ static void process_image(const void *p, int size)
     struct timespec frame_time;
     int y_temp, y2_temp, u_temp, v_temp;
     unsigned char *pptr = (unsigned char *)p;
+    int R_temp, G_temp, B_temp;
+    /*Apply pseudo-color functions using sinusoids*/
+    int C_r = 234; 					// Cycle change for the red channel
+    int P_r = 10; 					// Phase change for the red channel
+    int C_b = 604; 					// Cycle change for the blue channel
+    int P_b = 60; 					// Phase change for the blue channel
+    int C_g = 804;					// Cycle change for the green channel
+    int P_g = 60; 					// Phase change for the green channel
 
     // record when process was called
     //clock_gettime(CLOCK_REALTIME, &frame_time);    
@@ -308,6 +366,47 @@ static void process_image(const void *p, int size)
         dump_ppm(bigbuffer, ((size*6)/4), framecnt, &frame_time);
 	}
 //#else
+	else if (transform_2){
+	pthread_mutex_unlock(&lock);
+	printf("Dump YUYV converted to Pseudo-coloring size %d\n", size);
+       
+        // Pixels are YU and YV alternating, so YUYV which is 4 bytes
+        // We want Y, so YY which is 2 bytes
+        //
+        for(i=0, newi=0; i<size; i=i+4, newi=newi+2)
+        {
+            // Y1=first byte and Y2=third byte
+            bigbuffer[newi]=pptr[i];
+            bigbuffer[newi+1]=pptr[i+2];
+	}
+
+	//printf("abs check %d\n", M_PI);
+	for(i=0, newi=0; i<=(size/2); i++, newi = newi+3)
+	{
+			
+		R_temp = abs(2*sin(2*3.14*P_r*bigbuffer[i]/C_r)*bigbuffer[i]);
+		G_temp = abs(2*sin(2*3.14*P_g*bigbuffer[i]/C_g)*bigbuffer[i]);
+		B_temp = abs(2*sin(2*3.14*P_b*bigbuffer[i]/C_b)*bigbuffer[i]);
+
+   		// Computed values may need clipping.
+  		 if (R_temp > 255) R_temp = 255;
+ 		 if (G_temp > 255) G_temp = 255;
+  		 if (B_temp > 255) B_temp = 255;
+
+   		/*if (R_temp < 0) R_temp = 0;
+   		if (G_temp < 0) G_temp = 0;
+   		if (B_temp < 0) B_temp = 0;	*/
+		
+		newbuffer[newi] = R_temp;
+		newbuffer[newi+1] = G_temp;
+		newbuffer[newi+2] = B_temp;
+
+	
+	}
+
+	dump_ppm(newbuffer, (size*3), framecnt, &frame_time);
+	
+	}
 	else {
 	pthread_mutex_unlock(&lock);
         printf("Dump YUYV converted to YY size %d\n", size);
@@ -348,10 +447,14 @@ static int read_frame(void)
 {
     struct v4l2_buffer buf;
     unsigned int i;
+    double jitter = 0;
 
     static struct timespec process_times[TOTAL_FRAME_COUNT];
     static int process_times_count = 0;
     static double frame_rates[TOTAL_FRAME_COUNT] = {0};
+
+    framecnt++;
+    printf("frame %d: \r\n", framecnt);
 
     switch (io)
     {
@@ -417,14 +520,6 @@ static int read_frame(void)
 
 	    //Add the data to the circular buffer 
 	    aesd_circular_buffer_add_entry(&circular_buffer, &buffers[buf.index], buf.length);
-	    if(first_frame_captured){
-		    //Start the timer so we begin capturing frames
-		    int timeout_ret = timer_settime(oneHZ_capture_timer, 0, &timeout_timespec, NULL);
-		    if(timeout_ret){
-			perror ("timer_settime");
-		    }
-		    first_frame_captured = 0;
-	    }
 
 	    //printf("buf bytesused:%d\r\n", buf.bytesused);
 
@@ -433,9 +528,13 @@ static int read_frame(void)
 	    if(process_times_count >= 1){
 		    frame_rates[process_times_count] = (process_times[process_times_count].tv_sec - process_times[process_times_count-1].tv_sec) +
 				 (process_times[process_times_count].tv_nsec - process_times[process_times_count-1].tv_nsec) / 1000000000.0; 
-		    //syslog(LOG_INFO,"frame rate is:%fs for frame:%d at resolution 320x240", frame_rates[process_times_count], process_times_count-1);
+		    if(process_times_count >= 3){
+			    jitter = (frame_rates[process_times_count] - frame_rates[process_times_count-1]);
+		    }
+		    syslog(LOG_INFO,"frame rate is:%fhz for frame:%d with jitter:%fs at resolution %sx%s", (1/frame_rates[process_times_count]), process_times_count-1, jitter, HRES_STR, VRES_STR);
 	    }
 	    process_times_count++;
+	    /*
 	    if(process_times_count == TOTAL_FRAME_COUNT){
 		    double total_frame_rate = 0;
 		    double jitter = 0;
@@ -450,7 +549,7 @@ static int read_frame(void)
 	   	    syslog(LOG_INFO, "Average frame rate:%fHz", 1/(total_frame_rate/TOTAL_FRAME_COUNT));
 		    syslog(LOG_INFO, "Average jitter is:%f", jitter/TOTAL_FRAME_COUNT);
 	    } 
-
+	    */
             if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
                     errno_exit("VIDIOC_QBUF");
             break;
@@ -497,7 +596,7 @@ static int read_frame(void)
 }
 
 
-static void mainloop(void)
+void *mainloop(void *threadp)
 {
     unsigned int count;
     struct timespec read_delay;
@@ -506,10 +605,11 @@ static void mainloop(void)
     read_delay.tv_sec=0;
     read_delay.tv_nsec=30000;
 
-    count = frame_count;
 
-    while (count > 0)
+    while (!abortS2)
     {
+	sem_wait(&read_frames_sem);
+	
         for (;;)
         {
             fd_set fds;
@@ -519,7 +619,7 @@ static void mainloop(void)
             FD_ZERO(&fds);
             FD_SET(fd, &fds);
 
-            /* Timeout. */
+            // Timeout.
             tv.tv_sec = 2;
             tv.tv_usec = 0;
 
@@ -545,16 +645,13 @@ static void mainloop(void)
                 else
                     //syslog(LOG_INFO, "time_error.tv_sec=%ld, time_error.tv_nsec=%ld", time_error.tv_sec, time_error.tv_nsec);
 
-                count--;
                 break;
             }
-
-            /* EAGAIN - continue select loop unless count done. */
-            if(count <= 0) break;
         }
-
         if(count <= 0) break;
+	
     }
+	pthread_exit((void *)0);
 }
 
 static void stop_capturing(void)
@@ -590,7 +687,7 @@ static void start_capturing(void)
         case IO_METHOD_MMAP:
                 for (i = 0; i < n_buffers; ++i) 
                 {
-                        printf("allocated buffer %d\n", i);
+                        //printf("allocated buffer %d\n", i);
                         struct v4l2_buffer buf;
 
                         CLEAR(buf);
@@ -1010,6 +1107,8 @@ void SIGhandler(int signo) {
 			}
 			pthread_mutex_unlock(&lock); 
 			break;
+
+	pthread_exit((void *)0);
 		case SIGQUIT:
 			pthread_mutex_lock(&lock);
 			if(transform_3){
@@ -1028,14 +1127,68 @@ void SIGhandler(int signo) {
 
 //Handler that controls capturing the frames every 1 second by looking 
 //at the last most recent entry to the circular buffer
-void oneHZ_frame_capture_handler(union sigval sv){
+void *oneHZ_frame_capture_handler(void *threadp){
 	char time_buf[50];
+	uint8_t last_frame_index=0;
+	while(!abortS1){
+		sem_wait(&save_frames_sem);	
 	
-	uint8_t last_frame_index = get_current_entry_location(&circular_buffer);
-        process_image(circular_buffer.pixel_data[last_frame_index]->start, 153600);
-	timespec2str(time_buf, sizeof(time_buf), circular_buffer.pixel_data[last_frame_index]->time);
-	syslog(LOG_INFO,"time of frame capture: %s", time_buf);
+		last_frame_index = get_current_entry_location(&circular_buffer);
+		process_image(circular_buffer.pixel_data[last_frame_index]->start, PIXEL_BUF_LENGTH);
+		timespec2str(time_buf, sizeof(time_buf), circular_buffer.pixel_data[last_frame_index]->time);
+		syslog(LOG_INFO,"time of frame capture: %s", time_buf);
+	}
+
+	pthread_exit((void *)0);
 	
+}
+
+void Sequencer(int id)
+{
+    struct timespec current_time_val;
+    double current_realtime;
+    int rc, flags=0;
+
+    // received interval timer signal
+           
+    seqCnt++;
+
+    //clock_gettime(MY_CLOCK_TYPE, &current_time_val); current_realtime=realtime(&current_time_val);
+    //printf("Sequencer on core %d for cycle %llu @ sec=%6.9lf\n", sched_getcpu(), seqCnt, current_realtime-start_realtime);
+    //syslog(LOG_CRIT, "Sequencer on core %d for cycle %llu @ sec=%6.9lf\n", sched_getcpu(), seqCnt, current_realtime-start_realtime);
+
+
+    // Release each service at a sub-rate of the generic sequencer rate
+
+    // Service_2 = RT_MAX-2	@ 20 Hz
+    if((seqCnt % 5) == 0) sem_post(&read_frames_sem);
+
+    // Service_7 = RT_MIN	1 Hz
+    if((seqCnt % 100) == 0) sem_post(&save_frames_sem);
+
+    
+    if((seqCnt >= sequencePeriods))
+    {
+
+	//configure timespec to start in 1 seconds
+	timeout_timespec.it_value.tv_sec = 0;
+	timeout_timespec.it_value.tv_nsec = 0;
+
+	//configure timespec to restart every 1 seconds
+	timeout_timespec.it_interval.tv_sec = 0;
+	timeout_timespec.it_interval.tv_nsec = 0;
+
+        timer_settime(sequencer_timer, flags, &timeout_timespec, &last_itime);
+	printf("Disabling sequencer interval timer %llu of %d\n", seqCnt, sequencePeriods);
+
+	// shutdown all services
+        sem_post(&save_frames_sem); 
+        sem_post(&read_frames_sem);
+
+        abortS1=TRUE; 
+        abortS2=TRUE;
+    }
+
 }
 
 int main(int argc, char **argv)
@@ -1050,6 +1203,25 @@ int main(int argc, char **argv)
         return 1; 
     } 
 
+    struct timespec current_time_val, current_time_res;
+    double current_realtime, current_realtime_res;
+
+    int i, rc, scope, flags=0;
+
+    cpu_set_t threadcpu;
+    cpu_set_t allcpuset;
+
+    pthread_t threads[NUM_THREADS];
+    threadParams_t threadParams[NUM_THREADS];
+    pthread_attr_t rt_sched_attr[NUM_THREADS];
+    int rt_max_prio, rt_min_prio, cpuidx;
+
+    struct sched_param rt_param[NUM_THREADS];
+    struct sched_param main_param;
+
+    pthread_attr_t main_attr;
+    pid_t mainpid;
+
     //setlogmask (LOG_UPTO (LOG_ERR));
     openlog("final_project_capture.c", LOG_PID|LOG_CONS, LOG_USER);
 
@@ -1058,6 +1230,110 @@ int main(int argc, char **argv)
     signal(SIGINT, SIGhandler);
     signal(SIGTSTP, SIGhandler);
     signal(SIGQUIT, SIGhandler);
+
+    //intialize the circular buffer with memory
+    aesd_circular_buffer_init(&circular_buffer);
+
+    printf("System has %d processors configured and %d available.\n", get_nprocs_conf(), get_nprocs());
+
+    CPU_ZERO(&allcpuset);
+
+    for(i=0; i < NUM_CPU_CORES; i++)
+        CPU_SET(i, &allcpuset);
+
+    printf("Using CPUS=%d from total available.\n", CPU_COUNT(&allcpuset));
+
+
+    // initialize the sequencer semaphores
+    //
+    if (sem_init (&save_frames_sem, 0, 0)) { printf ("Failed to initialize save semaphore\n"); exit (-1); }
+    if (sem_init (&read_frames_sem, 0, 0)) { printf ("Failed to initialize read semaphore\n"); exit (-1); }
+
+    mainpid=getpid();
+
+    rt_max_prio = sched_get_priority_max(SCHED_FIFO);
+    rt_min_prio = sched_get_priority_min(SCHED_FIFO);
+
+    rc=sched_getparam(mainpid, &main_param);
+    main_param.sched_priority=rt_max_prio;
+    rc=sched_setscheduler(getpid(), SCHED_FIFO, &main_param);
+    if(rc < 0) perror("main_param");
+    print_scheduler();
+
+
+    pthread_attr_getscope(&main_attr, &scope);
+
+    if(scope == PTHREAD_SCOPE_SYSTEM)
+      printf("PTHREAD SCOPE SYSTEM\n");
+    else if (scope == PTHREAD_SCOPE_PROCESS)
+      printf("PTHREAD SCOPE PROCESS\n");
+    else
+      printf("PTHREAD SCOPE UNKNOWN\n");
+
+    printf("rt_max_prio=%d\n", rt_max_prio);
+    printf("rt_min_prio=%d\n", rt_min_prio);
+
+    for(i=0; i < NUM_THREADS; i++)
+    {
+
+      // run even indexed threads on core 2
+      if(i % 2 == 0)
+      {
+          CPU_ZERO(&threadcpu);
+          cpuidx=(2);
+          CPU_SET(cpuidx, &threadcpu);
+      }
+
+      // run odd indexed threads on core 3
+      else
+      {
+          CPU_ZERO(&threadcpu);
+          cpuidx=(3);
+          CPU_SET(cpuidx, &threadcpu);
+      }
+
+      rc=pthread_attr_init(&rt_sched_attr[i]);
+      rc=pthread_attr_setinheritsched(&rt_sched_attr[i], PTHREAD_EXPLICIT_SCHED);
+      rc=pthread_attr_setschedpolicy(&rt_sched_attr[i], SCHED_FIFO);
+      rc=pthread_attr_setaffinity_np(&rt_sched_attr[i], sizeof(cpu_set_t), &threadcpu);
+
+      rt_param[i].sched_priority=rt_max_prio-i;
+      pthread_attr_setschedparam(&rt_sched_attr[i], &rt_param[i]);
+
+      threadParams[i].threadIdx=i;
+    }
+    
+    //Open the camera device interface and prepare it to capture image data
+    syslog(LOG_INFO, "Opening camera device...");
+    open_device();
+    init_device();
+    start_capturing();
+
+    // Servcie_1 capture frames = RT_MAX-1	@ ~20 Hz
+    rt_param[0].sched_priority=rt_max_prio-1;
+    pthread_attr_setschedparam(&rt_sched_attr[0], &rt_param[0]);
+    rc=pthread_create(&threads[0],               // pointer to thread descriptor
+                      &rt_sched_attr[0],         // use specific attributes
+                      //(void *)0,               // default attributes
+                      mainloop,                 // thread function entry point
+                      (void *)&(threadParams[0]) // parameters to pass in
+                     );
+
+    if(rc < 0){
+        perror("pthread_create for service 1");	
+    }
+    else{
+        printf("pthread_create successful for frame capture service (20hz)\n");
+    }
+
+    // Service_2 = RT_MAX-2	@ 1 Hz
+    rt_param[1].sched_priority=rt_max_prio-2;
+    pthread_attr_setschedparam(&rt_sched_attr[1], &rt_param[1]);
+    rc=pthread_create(&threads[1], &rt_sched_attr[1], oneHZ_frame_capture_handler, (void *)&(threadParams[1]));
+    if(rc < 0)
+        perror("pthread_create for service 2");
+    else
+        printf("pthread_create successful for frame save service (1hz)\n");
 
     for (;;)
     {
@@ -1116,43 +1392,41 @@ int main(int argc, char **argv)
         }
     }
 
-    //configure timespec to start in 1 seconds
-    timeout_timespec.it_value.tv_sec = 1;
-    timeout_timespec.it_value.tv_nsec = 0;
-
-    //configure timespec to restart every 1 seconds
-    timeout_timespec.it_interval.tv_sec = 1;
-    timeout_timespec.it_interval.tv_nsec = 0;
-
-    //Pass function pointer and timer structure to the event structure
-    timeout_event.sigev_notify = SIGEV_THREAD;
-    timeout_event.sigev_notify_function = &oneHZ_frame_capture_handler;
-    timeout_event.sigev_notify_attributes = NULL;
-    timeout_event.sigev_value.sival_ptr = &oneHZ_capture_timer;
-    timeout_event.sigev_value.sival_int = 0;
+    sequencePeriods=2000;
 
     //create the Timer with the proper event
-    int ret = timer_create(CLOCK_REALTIME, &timeout_event, &oneHZ_capture_timer);
-    syslog(LOG_INFO, "timer create ret val=%d\r\n", ret);
+    int ret = timer_create(CLOCK_REALTIME, NULL, &sequencer_timer);
+    syslog(LOG_INFO, "timer create ret val=%d", ret);
+
+    signal(SIGALRM, (void(*)()) Sequencer);
+
+    //configure timespec to start in 1 seconds
+    timeout_timespec.it_value.tv_sec = 0;
+    timeout_timespec.it_value.tv_nsec = 10000000;
+
+    //configure timespec to restart every 1 seconds
+    timeout_timespec.it_interval.tv_sec = 0;
+    timeout_timespec.it_interval.tv_nsec = 10000000;
+
+    timer_settime(sequencer_timer, flags, &timeout_timespec, &last_itime);
 
     if (ret){
     	perror ("timeout timer_create");
     }
-    syslog(LOG_INFO, "created timeout timer \r\n");
 
-    syslog(LOG_INFO, "Opening device...");
-    open_device();
-    init_device();
-    aesd_circular_buffer_init(&circular_buffer);
-    start_capturing();
+    for(i=0;i<NUM_THREADS;i++)
+    {
+        if(rc=pthread_join(threads[i], NULL) < 0)
+		perror("main pthread_join");
+	else
+		printf("joined thread %d\n", i);
+    }
 
-
-    //FIX: add mainloop to thread?
-    mainloop();
     stop_capturing();
     uninit_device();
     close_device();
     closelog();
+
     fprintf(stderr, "\n");
     return 0;
 }

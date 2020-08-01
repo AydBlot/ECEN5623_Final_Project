@@ -3,8 +3,8 @@ LIB_DIRS =
 CC=gcc
 
 CDEFS=
-CFLAGS= -O0 -g $(INCLUDE_DIRS) $(CDEFS)
-LIBS= -lrt -lpthread -Wall -g
+CFLAGS= -O0 -g -Wno-stringop-overflow $(INCLUDE_DIRS) $(CDEFS)
+LIBS= -lrt -lpthread -Wall -g -lm 
 
 HFILES= 
 CFILES= final_project_capture.c circular_buffer.c 

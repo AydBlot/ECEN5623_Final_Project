@@ -110,7 +110,7 @@ void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
     memset(buffer,0,sizeof(struct aesd_circular_buffer));
     for(int i = 0; i<CIRCULAR_BUFFER_SIZE; i++){
     	buffer->pixel_data[i] = calloc(1, sizeof(*buffers));	
-    	buffer->pixel_data[i]->start = malloc(153600);
+    	buffer->pixel_data[i]->start = malloc(PIXEL_BUF_LENGTH);
         buffer->pixel_data[i]->time = malloc(sizeof(struct timespec));	
     }
 }
