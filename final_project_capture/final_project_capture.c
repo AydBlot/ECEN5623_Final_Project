@@ -379,7 +379,6 @@ static void process_image(const void *p, int size)
             bigbuffer[newi]=pptr[i];
             bigbuffer[newi+1]=pptr[i+2];
 	}
-
 	//printf("abs check %d\n", M_PI);
 	for(i=0, newi=0; i<=(size/2); i++, newi = newi+3)
 	{
@@ -407,7 +406,7 @@ static void process_image(const void *p, int size)
 	dump_ppm(newbuffer, (size*3), framecnt, &frame_time);
 	
 	}
-	else {
+	else{
 	pthread_mutex_unlock(&lock);
         printf("Dump YUYV converted to YY size %d\n", size);
        
