@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <assert.h>
 #include <string.h>
 #include <math.h>
@@ -45,6 +46,8 @@
 
 #include "circular_buffer.h" 
 
+#define TwentyHz_FRAME_RATE_RECORD
+#define OneHz_FRAME_RATE_RECORD
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 //#define COLOR_CONVERT
 #define HRES 640
@@ -85,6 +88,8 @@ static int              frame_count = 300;
 #define TOTAL_FRAME_COUNT 400
 #define TRUE (1)
 #define FALSE (0)
+#define EXPECTED_FRAME_RATE 20.0
+#define EXPECTED_FRAME_SAVE_RATE 1.0
 
 int transform_1 = 0;
 int transform_2 = 0;
@@ -315,6 +320,14 @@ unsigned char newbuffer[(1280*960)];
 
 static void process_image(const void *p, int size)
 {
+    double jitter = 0;
+    double drift = 0;
+
+    static struct timespec process_times[TOTAL_FRAME_COUNT];
+    static int process_times_count = 0;
+    static double frame_rates[TOTAL_FRAME_COUNT] = {0};
+    char transform_type_str[50];	
+
     int i, newi, newsize=0;
     struct timespec frame_time;
     int y_temp, y2_temp, u_temp, v_temp;
@@ -435,7 +448,34 @@ static void process_image(const void *p, int size)
     {
         printf("ERROR - unknown dump format\n");
     }
+#if defined(OneHz_FRAME_RATE_RECORD)
+	clock_gettime(CLOCK_REALTIME, &process_times[process_times_count]);    
 
+	bzero(transform_type_str, 50);	
+	pthread_mutex_lock(&lock);
+	if(transform_1){
+		pthread_mutex_unlock(&lock);
+		strcpy(transform_type_str, "RGB");
+	}
+	else if(transform_2){
+		pthread_mutex_unlock(&lock);
+		strcpy(transform_type_str, "Pseudo Coloring");
+	}
+	else{
+	pthread_mutex_unlock(&lock);
+		strcpy(transform_type_str, "Greyscale");
+	}
+	    if(process_times_count >= 1){
+		    frame_rates[process_times_count] = (process_times[process_times_count].tv_sec - process_times[process_times_count-1].tv_sec) +
+				 (process_times[process_times_count].tv_nsec - process_times[process_times_count-1].tv_nsec) / 1000000000.0; 
+		    drift = (EXPECTED_FRAME_SAVE_RATE-(1/frame_rates[process_times_count]));
+		    if(process_times_count >= 3){
+			    jitter = (frame_rates[process_times_count] - frame_rates[process_times_count-1]);
+		    }
+		    syslog(LOG_INFO,"ONEHZ frame rate is:%fhz for frame:%d with jitter:%fs and drift:%fs at resolution %sx%s for transform type %s", (1/frame_rates[process_times_count]), process_times_count-1, jitter, drift, HRES_STR, VRES_STR, transform_type_str);
+	    }
+	    process_times_count++;
+#endif
     fflush(stderr);
     //fprintf(stderr, ".");
     fflush(stdout);
@@ -447,6 +487,7 @@ static int read_frame(void)
     struct v4l2_buffer buf;
     unsigned int i;
     double jitter = 0;
+    double drift = 0;
 
     static struct timespec process_times[TOTAL_FRAME_COUNT];
     static int process_times_count = 0;
@@ -523,16 +564,19 @@ static int read_frame(void)
 	    //printf("buf bytesused:%d\r\n", buf.bytesused);
 
 	    // record when processing finished (frame was captured)
+#if defined(TwentyHz_FRAME_RATE_RECORD)
 	    clock_gettime(CLOCK_REALTIME, &process_times[process_times_count]);    
 	    if(process_times_count >= 1){
 		    frame_rates[process_times_count] = (process_times[process_times_count].tv_sec - process_times[process_times_count-1].tv_sec) +
 				 (process_times[process_times_count].tv_nsec - process_times[process_times_count-1].tv_nsec) / 1000000000.0; 
+		    drift = (EXPECTED_FRAME_RATE-(1/frame_rates[process_times_count]));
 		    if(process_times_count >= 3){
 			    jitter = (frame_rates[process_times_count] - frame_rates[process_times_count-1]);
 		    }
-		    syslog(LOG_INFO,"frame rate is:%fhz for frame:%d with jitter:%fs at resolution %sx%s", (1/frame_rates[process_times_count]), process_times_count-1, jitter, HRES_STR, VRES_STR);
+		    syslog(LOG_INFO,"frame rate is:%fhz for frame:%d with jitter:%fs and drift:%fs at resolution %sx%s", (1/frame_rates[process_times_count]), process_times_count-1, jitter, drift, HRES_STR, VRES_STR);
 	    }
 	    process_times_count++;
+#endif
 	    /*
 	    if(process_times_count == TOTAL_FRAME_COUNT){
 		    double total_frame_rate = 0;
@@ -1129,6 +1173,7 @@ void SIGhandler(int signo) {
 void *oneHZ_frame_capture_handler(void *threadp){
 	char time_buf[50];
 	uint8_t last_frame_index=0;
+
 	while(!abortS1){
 		sem_wait(&save_frames_sem);	
 	
@@ -1391,7 +1436,7 @@ int main(int argc, char **argv)
         }
     }
 
-    sequencePeriods=2000;
+    sequencePeriods=1000;
 
     //create the Timer with the proper event
     int ret = timer_create(CLOCK_REALTIME, NULL, &sequencer_timer);
