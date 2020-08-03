@@ -22,10 +22,9 @@ Status icons used in the status column:
 | Submit Project Proposal | :heavy_check_mark:| Ayden & Joey | 07/24/2020 |
 | Initialize git Repo     | :heavy_check_mark:| Ayden & Joey | 07/24/2020 |                
 | Syslogging              | :heavy_check_mark: | Ayden        | 07/24/2020 |
-| Requirement 1           | :heavy_plus_sign: | Ayden        |     N/A    |
-| Requirement 2           | :heavy_plus_sign:               | Joey         |     N/A    |
-| Calculation of jitter   | :x:               | Ayden        |     N/A    |
-| Calculation of drift    | :x:               | Ayden        |     N/A    |
-| Circular Buffer         | :heavy_plus_sign:               | Joey         |     N/A    |
-| TBD                     | :x:               |              |     N/A    |
-| TBD                     | :x:               |              |     N/A    |
+| Requirement 1           | :heavy_check_mark: | Ayden        | 07/27/2020 |
+| Requirement 2           | :heavy_check_mark: | Joey         | 08/01/2020 |
+| Time Analysis Calcs     | :heavy_check_mark: | Ayden        | 07/29/2020 |
+| Circular Buffer         | :heavy_check_mark: | Joey         | 07/31/2020 |
+| Sequencer               | :heavy_check_mark: | Ayden        | 07/31/2020 |
+| Report                  | :heavy_check_mark: | Joey & Ayden | 08/03/2020 |
