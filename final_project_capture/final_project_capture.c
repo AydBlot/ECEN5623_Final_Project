@@ -85,7 +85,7 @@ static int              out_buf;
 static int              force_format=1;
 static int              frame_count = 300;
 
-#define TOTAL_FRAME_COUNT 400
+#define TOTAL_FRAME_COUNT 36000
 #define TRUE (1)
 #define FALSE (0)
 #define EXPECTED_FRAME_RATE 20.0
@@ -187,9 +187,10 @@ char ppm_header[]="P6\n#9999999999 sec 9999999999 msec \n"HRES_STR" "VRES_STR"\n
 char ppm_dumpname[]="test00000000.ppm";
 
 
-static void dump_ppm(const void *p, int size, unsigned int tag, struct timespec *time)
+static void dump_ppm(const void *p, int size, struct timespec *time)
 {
     int written, i, total, dumpfd;
+    static unsigned int tag = 0;
    
     snprintf(&ppm_dumpname[4], 9, "%08d", tag);
     strncat(&ppm_dumpname[12], ".ppm", 5);
@@ -214,6 +215,7 @@ static void dump_ppm(const void *p, int size, unsigned int tag, struct timespec 
     //printf("wrote %d bytes\n", total);
 
     close(dumpfd);
+    tag++;
     
 }
 
@@ -376,7 +378,7 @@ static void process_image(const void *p, int size)
             yuv2rgb(y2_temp, u_temp, v_temp, &bigbuffer[newi+3], &bigbuffer[newi+4], &bigbuffer[newi+5]);
         }
 
-        dump_ppm(bigbuffer, ((size*6)/4), framecnt, &frame_time);
+        dump_ppm(bigbuffer, ((size*6)/4), &frame_time);
 	}
 //#else
 	else if (transform_2){
@@ -416,7 +418,7 @@ static void process_image(const void *p, int size)
 	
 	}
 
-	dump_ppm(newbuffer, (size*3), framecnt, &frame_time);
+	dump_ppm(newbuffer, (size*3), &frame_time);
 	
 	}
 	else{
@@ -442,7 +444,7 @@ static void process_image(const void *p, int size)
     else if(fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24)
     {
         printf("Dump RGB as-is size %d\n", size);
-        dump_ppm(p, size, framecnt, &frame_time);
+        dump_ppm(p, size, &frame_time);
     }
     else
     {
@@ -1436,7 +1438,7 @@ int main(int argc, char **argv)
         }
     }
 
-    sequencePeriods=1000;
+    sequencePeriods=180000;
 
     //create the Timer with the proper event
     int ret = timer_create(CLOCK_REALTIME, NULL, &sequencer_timer);
